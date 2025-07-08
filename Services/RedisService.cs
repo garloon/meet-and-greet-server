@@ -1,4 +1,5 @@
 ﻿using StackExchange.Redis;
+using System.Text.Json;
 
 namespace MeetAndGreet.API.Services
 {
@@ -14,7 +15,10 @@ namespace MeetAndGreet.API.Services
         public RedisService(IConfiguration configuration, ILogger<RedisService> logger)
         {
             _connectionString = configuration.GetConnectionString("Redis");
-            _redis = ConnectionMultiplexer.Connect(_connectionString);
+            var config = ConfigurationOptions.Parse(_connectionString);
+            config.Password = Environment.GetEnvironmentVariable("Redis__Password") ?? throw new InvalidOperationException("Redis__Password environment variable not set.");
+
+            _redis = ConnectionMultiplexer.Connect(config);
             _db = _redis.GetDatabase();
             _logger = logger;
         }
@@ -74,7 +78,7 @@ namespace MeetAndGreet.API.Services
 
                 var db = _redis.GetDatabase();
                 var expiry = TimeSpan.FromHours(1);
-                
+
                 await _db.StringSetAsync($"user:{userId}:name", userName, expiry);
                 await db.StringSetAsync($"user:{userId}:channel", channelId, expiry);
                 await db.StringSetAsync($"connection:{connectionId}:user", userId, expiry);
@@ -94,7 +98,7 @@ namespace MeetAndGreet.API.Services
             try
             {
                 var db = _redis.GetDatabase();
-                
+
                 var transaction = db.CreateTransaction();
 
                 _ = transaction.KeyDeleteAsync($"user:{userId}:channel");
@@ -116,13 +120,13 @@ namespace MeetAndGreet.API.Services
             try
             {
                 var db = _redis.GetDatabase();
-                
+
                 string userId = await db.StringGetAsync($"connection:{connectionId}:user");
                 if (!string.IsNullOrEmpty(userId))
                 {
                     return userId;
                 }
-                
+
                 return null;
             }
             catch (Exception ex)
@@ -181,7 +185,7 @@ namespace MeetAndGreet.API.Services
                 {
                     var userId = entry.Name.ToString();
                     var connectionId = entry.Value.ToString();
-                    
+
                     bool isActive = await db.KeyExistsAsync($"connection:{connectionId}:user")
                                  && await db.KeyExistsAsync($"user:{userId}:channel");
 
@@ -230,7 +234,7 @@ namespace MeetAndGreet.API.Services
                 _logger.LogError(ex, "Error while removing connection id mapping for user {UserId}", userId);
             }
         }
-        
+
         public async Task<List<string>> GetUserChannels(string userId)
         {
             try
@@ -333,7 +337,7 @@ namespace MeetAndGreet.API.Services
             {
                 var db = _redis.GetDatabase();
                 var server = _redis.GetServer(_redis.GetEndPoints().First());
-                
+
                 var connectionKeys = server.Keys(pattern: "connection:*:user");
                 foreach (var key in connectionKeys)
                 {
@@ -353,7 +357,7 @@ namespace MeetAndGreet.API.Services
                         }
                     }
                 }
-                
+
                 var channelKeys = server.Keys(pattern: "channel:*:users");
                 foreach (var key in channelKeys)
                 {

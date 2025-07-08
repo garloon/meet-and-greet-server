@@ -5,8 +5,6 @@ VisualStudioVersion = 17.13.35919.96
 MinimumVisualStudioVersion = 10.0.40219.1
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "MeetAndGreet.API", "MeetAndGreet.API.csproj", "{A5EADAEB-0C2A-4E52-9C95-69D9C6CF844D}"
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "SignalRClientTest", "..\SignalRClientTest\SignalRClientTest.csproj", "{960CDAB1-C1EC-4FE5-A8E2-6BFA863EB49F}"
-EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -17,10 +15,6 @@ Global
 		{A5EADAEB-0C2A-4E52-9C95-69D9C6CF844D}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{A5EADAEB-0C2A-4E52-9C95-69D9C6CF844D}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{A5EADAEB-0C2A-4E52-9C95-69D9C6CF844D}.Release|Any CPU.Build.0 = Release|Any CPU
-		{960CDAB1-C1EC-4FE5-A8E2-6BFA863EB49F}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
-		{960CDAB1-C1EC-4FE5-A8E2-6BFA863EB49F}.Debug|Any CPU.Build.0 = Debug|Any CPU
-		{960CDAB1-C1EC-4FE5-A8E2-6BFA863EB49F}.Release|Any CPU.ActiveCfg = Release|Any CPU
-		{960CDAB1-C1EC-4FE5-A8E2-6BFA863EB49F}.Release|Any CPU.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE

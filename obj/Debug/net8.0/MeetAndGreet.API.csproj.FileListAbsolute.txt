@@ -153,3 +153,9 @@ D:\Projects\MeetAndGreet.API\bin\Debug\net8.0\BCrypt.Net-Next.dll
 D:\Projects\MeetAndGreet.API\bin\Debug\net8.0\Castle.Core.dll
 D:\Projects\MeetAndGreet.API\bin\Debug\net8.0\Microsoft.EntityFrameworkCore.Proxies.dll
 D:\Projects\MeetAndGreet.API\obj\Debug\net8.0\staticwebassets.upToDateCheck.txt
+D:\Projects\MeetAndGreet.API\bin\Debug\net8.0\System.Collections.Immutable.dll
+D:\Projects\MeetAndGreet.API\bin\Debug\net8.0\System.Reflection.Metadata.dll
+D:\Projects\MeetAndGreet.API\obj\Debug\net8.0\MeetAndGreet.API.sourcelink.json
+D:\Projects\MeetAndGreet.API\bin\Debug\net8.0\AspNetCoreRateLimit.dll
+D:\Projects\MeetAndGreet.API\bin\Debug\net8.0\Newtonsoft.Json.dll
+D:\Projects\MeetAndGreet.API\bin\Debug\net8.0\RabbitMQ.Client.dll

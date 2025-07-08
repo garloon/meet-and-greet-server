@@ -12,17 +12,20 @@ namespace MeetAndGreet.API.Services
     {
         private readonly IConfiguration _config;
         private readonly ApplicationDbContext _dbContext;
+        private readonly string _jwtSecret;
 
         public TokenService(IConfiguration config, ApplicationDbContext dbContext)
         {
             _config = config;
             _dbContext = dbContext;
+            _jwtSecret = Environment.GetEnvironmentVariable("Jwt__Secret")
+                     ?? throw new InvalidOperationException("Jwt__Secret environment variable not set.");
         }
 
         public ClaimsPrincipal ValidateExpiredToken(string token)
         {
             var tokenHandler = new JwtSecurityTokenHandler();
-            var key = Encoding.UTF8.GetBytes(_config["Jwt:Key"]);
+            var key = Encoding.UTF8.GetBytes(_jwtSecret);
 
             var validationParameters = new TokenValidationParameters
             {
@@ -40,7 +43,7 @@ namespace MeetAndGreet.API.Services
 
         public string GenerateToken(IEnumerable<Claim> claims)
         {
-            var key = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(_config["Jwt:Key"]));
+            var key = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(_jwtSecret));
             var creds = new SigningCredentials(key, SecurityAlgorithms.HmacSha256);
 
             var token = new JwtSecurityToken(
