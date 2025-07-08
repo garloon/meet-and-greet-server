@@ -14,15 +14,21 @@ namespace MeetAndGreet.API.Hubs
         private readonly RedisService _redisService;
         private readonly IServiceProvider _serviceProvider;
         private readonly ILogger<ChatHub> _logger;
+        private readonly RateLimitService _rateLimitService;
+        private readonly RabbitMQService _rabbitMQService;
 
         public ChatHub(
             RedisService redisService,
             IServiceProvider serviceProvider,
-            ILogger<ChatHub> logger)
+            ILogger<ChatHub> logger,
+            RateLimitService rateLimitService,
+            RabbitMQService rabbitMQService)
         {
             _redisService = redisService;
             _serviceProvider = serviceProvider;
             _logger = logger;
+            _rateLimitService = rateLimitService;
+            _rabbitMQService = rabbitMQService;
         }
 
         public async Task JoinChannel(string channelId, string userId, string userName)
@@ -115,6 +121,13 @@ namespace MeetAndGreet.API.Hubs
 
         public async Task SendMessage(string channelId, string user, string message)
         {
+            if (!_rateLimitService.IsAllowed(Context.UserIdentifier))
+            {
+                _logger.LogWarning($"Rate limit exceeded for user {Context.UserIdentifier}");
+                await Clients.Caller.SendAsync("ReceiveMessage", "System", "Превышен лимит сообщений. Пожалуйста, подождите.");
+                return;
+            }
+
             _logger.LogInformation("Received message from user {User} in channel {ChannelId}", user, channelId);
 
             try
@@ -125,9 +138,12 @@ namespace MeetAndGreet.API.Hubs
                 if (message.Length > 100)
                     throw new HubException("Сообщение слишком длинное.");
 
-                _ = SaveMessageToDatabaseAsync(channelId, user, message);
-
-                await Clients.Group(channelId).SendAsync(HubEvents.ReceiveMessage, user, message);
+                _rabbitMQService.PublishMessage(new
+                {
+                    ChannelId = channelId,
+                    User = user,
+                    Message = message
+                });
             }
             catch (Exception ex)
             {
@@ -141,33 +157,6 @@ namespace MeetAndGreet.API.Hubs
             if (userId != null)
             {
                 await _redisService.UpdateUserActivity(userId, Context.ConnectionId);
-            }
-        }
-
-        private async Task SaveMessageToDatabaseAsync(string channelId, string user, string message)
-        {
-            using (var scope = _serviceProvider.CreateScope())
-            {
-                var dbContext = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
-
-                try
-                {
-                    var msg = new Message
-                    {
-                        Id = Guid.NewGuid(),
-                        Content = message,
-                        Timestamp = DateTime.UtcNow,
-                        UserName = user,
-                        ChannelId = Guid.Parse(channelId)
-                    };
-
-                    await dbContext.Messages.AddAsync(msg);
-                    await dbContext.SaveChangesAsync();
-                }
-                catch (Exception ex)
-                {
-                    _logger.LogError(ex, "Ошибка сохранения сообщения в БД");
-                }
             }
         }
     }

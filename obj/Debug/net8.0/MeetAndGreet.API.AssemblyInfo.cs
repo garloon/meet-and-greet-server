@@ -14,7 +14,7 @@ using System.Reflection;
 [assembly: System.Reflection.AssemblyCompanyAttribute("MeetAndGreet.API")]
 [assembly: System.Reflection.AssemblyConfigurationAttribute("Debug")]
 [assembly: System.Reflection.AssemblyFileVersionAttribute("1.0.0.0")]
-[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0")]
+[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+11c604d03bbbba4a3615dd8078d94b645956f44f")]
 [assembly: System.Reflection.AssemblyProductAttribute("MeetAndGreet.API")]
 [assembly: System.Reflection.AssemblyTitleAttribute("MeetAndGreet.API")]
 [assembly: System.Reflection.AssemblyVersionAttribute("1.0.0.0")]
