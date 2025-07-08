@@ -1,0 +1,6 @@
+@MeetAndGreet.API_HostAddress = http://localhost:5147
+
+GET {{MeetAndGreet.API_HostAddress}}/weatherforecast/
+Accept: application/json
+
+###
