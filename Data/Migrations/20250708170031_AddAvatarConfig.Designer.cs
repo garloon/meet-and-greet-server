@@ -12,8 +12,8 @@ using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 namespace MeetAndGreet.API.Data.Migrations
 {
     [DbContext(typeof(ApplicationDbContext))]
-    [Migration("20250702170020_ChangeUserModel3")]
-    partial class ChangeUserModel3
+    [Migration("20250708170031_AddAvatarConfig")]
+    partial class AddAvatarConfig
     {
         /// <inheritdoc />
         protected override void BuildTargetModel(ModelBuilder modelBuilder)
@@ -21,6 +21,9 @@ namespace MeetAndGreet.API.Data.Migrations
 #pragma warning disable 612, 618
             modelBuilder
                 .HasAnnotation("ProductVersion", "9.0.6")
+                .HasAnnotation("Proxies:ChangeTracking", false)
+                .HasAnnotation("Proxies:CheckEquality", false)
+                .HasAnnotation("Proxies:LazyLoading", true)
                 .HasAnnotation("Relational:MaxIdentifierLength", 63);
 
             NpgsqlModelBuilderExtensions.UseIdentityByDefaultColumns(modelBuilder);
@@ -97,13 +100,44 @@ namespace MeetAndGreet.API.Data.Migrations
                     b.ToTable("Messages");
                 });
 
+            modelBuilder.Entity("MeetAndGreet.API.Models.RefreshToken", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTime>("Expires")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<bool>("IsUsed")
+                        .HasColumnType("boolean");
+
+                    b.Property<string>("Token")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<Guid>("UserId")
+                        .HasColumnType("uuid");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("UserId");
+
+                    b.ToTable("RefreshTokens");
+                });
+
             modelBuilder.Entity("MeetAndGreet.API.Models.TrustedDevice", b =>
                 {
                     b.Property<string>("Id")
-                        .HasColumnType("text");
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
 
                     b.Property<DateTime>("ExpiryDate")
                         .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("FingerprintMetadata")
+                        .IsRequired()
+                        .HasColumnType("text");
 
                     b.Property<Guid>("UserId")
                         .HasColumnType("uuid");
@@ -121,8 +155,9 @@ namespace MeetAndGreet.API.Data.Migrations
                         .ValueGeneratedOnAdd()
                         .HasColumnType("uuid");
 
-                    b.Property<Guid?>("ChannelId")
-                        .HasColumnType("uuid");
+                    b.Property<string>("AvatarConfig")
+                        .IsRequired()
+                        .HasColumnType("text");
 
                     b.Property<DateTime>("CodeExpiry")
                         .HasColumnType("timestamp with time zone");
@@ -140,8 +175,6 @@ namespace MeetAndGreet.API.Data.Migrations
                         .HasColumnType("text");
 
                     b.HasKey("Id");
-
-                    b.HasIndex("ChannelId");
 
                     b.ToTable("Users");
                 });
@@ -163,10 +196,10 @@ namespace MeetAndGreet.API.Data.Migrations
                     b.Navigation("User");
                 });
 
-            modelBuilder.Entity("MeetAndGreet.API.Models.TrustedDevice", b =>
+            modelBuilder.Entity("MeetAndGreet.API.Models.RefreshToken", b =>
                 {
                     b.HasOne("MeetAndGreet.API.Models.User", "User")
-                        .WithMany("TrustedDevices")
+                        .WithMany()
                         .HasForeignKey("UserId")
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired();
@@ -174,18 +207,18 @@ namespace MeetAndGreet.API.Data.Migrations
                     b.Navigation("User");
                 });
 
-            modelBuilder.Entity("MeetAndGreet.API.Models.User", b =>
+            modelBuilder.Entity("MeetAndGreet.API.Models.TrustedDevice", b =>
                 {
-                    b.HasOne("MeetAndGreet.API.Models.Channel", null)
-                        .WithMany("Users")
-                        .HasForeignKey("ChannelId");
+                    b.HasOne("MeetAndGreet.API.Models.User", null)
+                        .WithMany("TrustedDevices")
+                        .HasForeignKey("UserId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
                 });
 
             modelBuilder.Entity("MeetAndGreet.API.Models.Channel", b =>
                 {
                     b.Navigation("Messages");
-
-                    b.Navigation("Users");
                 });
 
             modelBuilder.Entity("MeetAndGreet.API.Models.User", b =>

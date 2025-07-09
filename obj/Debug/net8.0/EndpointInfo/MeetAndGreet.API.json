@@ -181,6 +181,20 @@
   },
   "components": {
     "schemas": {
+      "AvatarConfig": {
+        "type": "object",
+        "properties": {
+          "gender": {
+            "type": "string",
+            "nullable": true
+          },
+          "color": {
+            "type": "string",
+            "nullable": true
+          }
+        },
+        "additionalProperties": false
+      },
       "LoginRequest": {
         "type": "object",
         "properties": {
@@ -210,21 +224,18 @@
         "additionalProperties": false
       },
       "RegisterRequest": {
-        "required": [
-          "name",
-          "password"
-        ],
         "type": "object",
         "properties": {
           "name": {
-            "maxLength": 20,
-            "minLength": 3,
-            "pattern": "^[a-zA-Z0-9_]+$",
-            "type": "string"
+            "type": "string",
+            "nullable": true
           },
           "password": {
-            "minLength": 6,
-            "type": "string"
+            "type": "string",
+            "nullable": true
+          },
+          "avatar": {
+            "$ref": "#/components/schemas/AvatarConfig"
           }
         },
         "additionalProperties": false

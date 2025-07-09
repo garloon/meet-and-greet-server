@@ -1,4 +1,4 @@
-﻿namespace MeetAndGreet.API.Models
+﻿namespace MeetAndGreet.API.Models.Requests
 {
     public class VerifyCodeRequest
     {

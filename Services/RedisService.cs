@@ -1,5 +1,6 @@
 ﻿using StackExchange.Redis;
 using System.Text.Json;
+using Microsoft.Extensions.Logging;
 
 namespace MeetAndGreet.API.Services
 {
@@ -10,17 +11,33 @@ namespace MeetAndGreet.API.Services
         private readonly IDatabase _db;
         private readonly string _connectionString;
 
+        private string GetUserChannelKey(string userId) => $"user:{userId}:channel";
+        private string GetConnectionUserKey(string connectionId) => $"connection:{connectionId}:user";
+        private string GetChannelUsersKey(string channelId) => $"channel:{channelId}:users";
+        private string GetUserNameKey(string userId) => $"user:{userId}:name";
+        private string GetUserConnectionKey(string userId) => $"user:{userId}:connection";
+
         public bool IsConnected => _redis?.IsConnected ?? false;
 
         public RedisService(IConfiguration configuration, ILogger<RedisService> logger)
         {
             _connectionString = configuration.GetConnectionString("Redis");
             var config = ConfigurationOptions.Parse(_connectionString);
-            config.Password = Environment.GetEnvironmentVariable("Redis__Password") ?? throw new InvalidOperationException("Redis__Password environment variable not set.");
+            try
+            {
+                config.Password = Environment.GetEnvironmentVariable("Redis__Password") ?? throw new InvalidOperationException("Redis__Password environment variable not set.");
+                _redis = ConnectionMultiplexer.Connect(config);
+                _db = _redis.GetDatabase();
+            }
+            catch (Exception e)
+            {
+                _logger.LogError(e, "Redis Connect exception");
+                throw;
+            }
 
-            _redis = ConnectionMultiplexer.Connect(config);
-            _db = _redis.GetDatabase();
-            _logger = logger;
+
+            _logger = logger ?? throw new ArgumentNullException(nameof(logger));
+            _logger.LogInformation("RedisService constructed.");
         }
 
         public async Task RunCommandSafeAsync(Func<IDatabase, Task> action)
@@ -66,7 +83,7 @@ namespace MeetAndGreet.API.Services
             }
         }
 
-        public async Task AddUserToChannel(string channelId, string userId, string connectionId, string userName)
+        public async Task AddUserToChannel(string channelId, string userId, string connectionId, string userName, string avatarConfig)
         {
             try
             {
@@ -76,14 +93,20 @@ namespace MeetAndGreet.API.Services
                 if (string.IsNullOrWhiteSpace(userName))
                     userName = userId;
 
-                var db = _redis.GetDatabase();
                 var expiry = TimeSpan.FromHours(1);
 
-                await _db.StringSetAsync($"user:{userId}:name", userName, expiry);
-                await db.StringSetAsync($"user:{userId}:channel", channelId, expiry);
-                await db.StringSetAsync($"connection:{connectionId}:user", userId, expiry);
-                await db.HashSetAsync($"channel:{channelId}:users", userId, connectionId);
-                await db.KeyExpireAsync($"channel:{channelId}:users", expiry);
+                var userData = new
+                {
+                    name = userName,
+                    avatar = avatarConfig
+                };
+
+                await _db.StringSetAsync(GetUserNameKey(userId), userName, expiry);
+                await _db.StringSetAsync(GetUserChannelKey(userId), channelId, expiry);
+                await _db.StringSetAsync(GetConnectionUserKey(connectionId), userId, expiry);
+                await _db.HashSetAsync(GetChannelUsersKey(channelId), userId, connectionId);
+                await _db.KeyExpireAsync(GetChannelUsersKey(channelId), expiry);
+                await _db.HashSetAsync(GetChannelUsersKey(channelId), userId, JsonSerializer.Serialize(userData));
 
                 _logger.LogInformation("User {UserId} added to channel {ChannelId}", userId, channelId);
             }
@@ -101,9 +124,9 @@ namespace MeetAndGreet.API.Services
 
                 var transaction = db.CreateTransaction();
 
-                _ = transaction.KeyDeleteAsync($"user:{userId}:channel");
-                _ = transaction.KeyDeleteAsync($"connection:{connectionId}:user");
-                _ = transaction.HashDeleteAsync($"channel:{channelId}:users", userId);
+                await transaction.KeyDeleteAsync($"user:{userId}:channel");
+                await transaction.KeyDeleteAsync($"connection:{connectionId}:user");
+                await transaction.HashDeleteAsync($"channel:{channelId}:users", userId);
 
                 await transaction.ExecuteAsync();
 
@@ -208,30 +231,46 @@ namespace MeetAndGreet.API.Services
             }
         }
 
-        public async Task RemoveUserIdConnectionId(string userId)
+        public async Task<Dictionary<string, string>> GetOnlineUsersWithNamesAndAvatars(string channelId)
         {
+            var db = _redis.GetDatabase();
+            var hashEntries = await db.HashGetAllAsync($"channel:{channelId}:users");
+
+            return hashEntries.ToDictionary(
+                x => x.Name.ToString(),
+                x => x.Value.ToString()
+            );
+        }
+
+        public async Task<string?> GetOrRemoveConnectionIdForUser(string userId, bool remove = false)
+        {
+            string key = $"user:{userId}:connection";
+
             try
             {
                 var db = _redis.GetDatabase();
+                var connectionId = await db.StringGetAsync(key);
 
-                // Construct the Redis key for the user's connection ID
-                string key = $"user:{userId}:connectionId";
-
-                // Delete the key from Redis
-                bool removed = await db.KeyDeleteAsync(key);
-
-                if (removed)
+                if (connectionId.HasValue)
                 {
-                    _logger.LogInformation("Removed connection id mapping for user {UserId}", userId);
+                    if (remove)
+                    {
+                        await db.KeyDeleteAsync(key);
+                        _logger.LogInformation("Removed connection id mapping for user {UserId}", userId);
+                        return null;
+                    }
+
+                    _logger.LogDebug("ConnectionId {connectionId} found in Redis for user {UserId}", connectionId, userId);
+                    return connectionId.ToString();
                 }
-                else
-                {
-                    _logger.LogWarning("No connection id mapping found for user {UserId}", userId);
-                }
+
+                _logger.LogWarning("No connection id mapping found for user {UserId}", userId);
+                return null;
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Error while removing connection id mapping for user {UserId}", userId);
+                _logger.LogError(ex, "Error getting/removing connection id for user {UserId}", userId);
+                return null;
             }
         }
 
@@ -373,16 +412,16 @@ namespace MeetAndGreet.API.Services
             }
         }
 
-        private static IEnumerable<string> GetExistingChannelIds(IConnectionMultiplexer redis)
+        public async Task UpdateUserConnection(string userId, string connectionId)
         {
-            var endpoints = redis.GetEndPoints();
-            foreach (var endpoint in endpoints)
+            try
             {
-                var server = redis.GetServer(endpoint);
-                foreach (var key in server.Keys(pattern: "channel:*:users"))
-                {
-                    yield return key.ToString().Split(':')[1];
-                }
+                var db = _redis.GetDatabase();
+                await db.StringSetAsync($"user:{userId}:connection", connectionId);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error updating connection for user {UserId}", userId);
             }
         }
     }

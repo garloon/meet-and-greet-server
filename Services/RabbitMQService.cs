@@ -1,4 +1,7 @@
-﻿using RabbitMQ.Client;
+﻿using Microsoft.Extensions.Logging;
+using Polly;
+using Polly.Retry;
+using RabbitMQ.Client;
 using RabbitMQ.Client.Events;
 using System.Text;
 using System.Text.Json;
@@ -14,16 +17,20 @@ namespace MeetAndGreet.API.Services
         private readonly string _exchangeName = "chat_exchange";
         private readonly string _queueName = "chat_queue";
         private readonly IConnectionFactory _connectionFactory;
-        private IConnection _connection;
-        private IModel _channel;
-        private EventingBasicConsumer _consumer;
+        private readonly IConnection _connection;
+        private readonly IModel _channel;
+        private readonly EventingBasicConsumer _consumer;
+        private readonly AsyncRetryPolicy _retryPolicy;
 
         public RabbitMQService(IConfiguration configuration, ILogger<RabbitMQService> logger)
         {
-            _logger = logger;
+            _logger = logger ?? throw new ArgumentNullException(nameof(logger));
+            
             _hostname = configuration["RabbitMQ:Hostname"] ?? "localhost";
             _username = configuration["RabbitMQ:Username"] ?? "guest";
             _password = configuration["RabbitMQ:Password"] ?? "guest";
+            
+            _logger.LogInformation("RabbitMQService constructed.");
 
             _connectionFactory = new ConnectionFactory()
             {
@@ -33,6 +40,17 @@ namespace MeetAndGreet.API.Services
                 AutomaticRecoveryEnabled = true,
                 NetworkRecoveryInterval = TimeSpan.FromSeconds(5)
             };
+
+            _retryPolicy = Policy
+                .Handle<RabbitMQ.Client.Exceptions.BrokerUnreachableException>()
+                .WaitAndRetryAsync(
+                    retryCount: 3,
+                    sleepDurationProvider: retryAttempt => TimeSpan.FromSeconds(Math.Pow(2, retryAttempt)),
+                    onRetry: (exception, timeSpan, retryAttempt, context) =>
+                    {
+                        _logger.LogWarning(exception, "Attempt {RetryAttempt} of {MaxRetries} failed. Retrying in {TimeSpan} seconds.", retryAttempt, 3, timeSpan.TotalSeconds);
+                    }
+                );
 
             try
             {
@@ -44,23 +62,48 @@ namespace MeetAndGreet.API.Services
                 _channel.QueueBind(queue: _queueName, exchange: _exchangeName, routingKey: "");
 
                 _consumer = new EventingBasicConsumer(_channel);
+                _logger.LogInformation("RabbitMQ connected to {Hostname}", _hostname);
             }
             catch (Exception ex)
             {
                 _logger.LogError(ex, "Error initializing RabbitMQ connection and channel");
-                throw; // Re-throw the exception to prevent the service from starting
+                throw;
             }
         }
 
-        public void PublishMessage<T>(T message)
+        public async Task PublishMessage<T>(T message)
         {
             try
             {
-                var messageBody = JsonSerializer.Serialize(message);
-                var body = Encoding.UTF8.GetBytes(messageBody);
+                var messageId = Guid.NewGuid();
+                
+                if (message is ChatMessage chatMessage)
+                {
+                    chatMessage.MessageId = messageId;
 
-                _channel.BasicPublish(exchange: _exchangeName, routingKey: "", basicProperties: null, body: body);
-                _logger.LogInformation($"Published message to RabbitMQ: {messageBody}");
+                    var messageBody = JsonSerializer.Serialize(chatMessage);
+                    var body = Encoding.UTF8.GetBytes(messageBody);
+                    
+                    await _retryPolicy.ExecuteAsync(async () =>
+                    {
+                        _logger.LogDebug("Publishing message to RabbitMQ: {messageBody}", messageBody);
+                        _channel.BasicPublish(exchange: _exchangeName, routingKey: "", basicProperties: null, body: body);
+                        _logger.LogDebug("Message published to RabbitMQ.");
+                    });
+                }
+                else
+                {
+                    _logger.LogWarning("Message type is not ChatMessage, unable to set MessageId.");
+                    var messageBody = JsonSerializer.Serialize(message);
+                    var body = Encoding.UTF8.GetBytes(messageBody);
+                    
+                    await _retryPolicy.ExecuteAsync(async () =>
+                    {
+                        _logger.LogDebug("Publishing message to RabbitMQ: {messageBody}", messageBody);
+                        _channel.BasicPublish(exchange: _exchangeName, routingKey: "", basicProperties: null, body: body);
+                        _logger.LogDebug("Message published to RabbitMQ.");
+                    });
+                }
             }
             catch (Exception ex)
             {
@@ -105,18 +148,39 @@ namespace MeetAndGreet.API.Services
 
         public void Dispose()
         {
-            // Dispose of resources
             if (_channel != null && _channel.IsOpen)
             {
-                _channel.Close();
-                _channel.Dispose();
+                try
+                {
+                    _channel.Close();
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogError(ex, "Error closing RabbitMQ channel");
+                }
+                finally
+                {
+                    _channel.Dispose();
+                }
+
                 _logger.LogInformation("RabbitMQ channel closed");
             }
 
             if (_connection != null && _connection.IsOpen)
             {
-                _connection.Close();
-                _connection.Dispose();
+                try
+                {
+                    _connection.Close();
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogError(ex, "Error closing RabbitMQ connection");
+                }
+                finally
+                {
+                    _connection.Dispose();
+                }
+
                 _logger.LogInformation("RabbitMQ connection closed");
             }
         }

@@ -6,7 +6,7 @@ using Microsoft.EntityFrameworkCore.Migrations;
 namespace MeetAndGreet.API.Data.Migrations
 {
     /// <inheritdoc />
-    public partial class InitialCreate : Migration
+    public partial class AddAvatarConfig : Migration
     {
         /// <inheritdoc />
         protected override void Up(MigrationBuilder migrationBuilder)
@@ -42,19 +42,15 @@ namespace MeetAndGreet.API.Data.Migrations
                 columns: table => new
                 {
                     Id = table.Column<Guid>(type: "uuid", nullable: false),
-                    UserName = table.Column<string>(type: "text", nullable: false),
-                    Email = table.Column<string>(type: "text", nullable: false),
+                    Name = table.Column<string>(type: "text", nullable: false),
                     PasswordHash = table.Column<string>(type: "text", nullable: false),
-                    AvatarId = table.Column<Guid>(type: "uuid", nullable: true)
+                    CurrentCode = table.Column<string>(type: "text", nullable: false),
+                    CodeExpiry = table.Column<DateTime>(type: "timestamp with time zone", nullable: false),
+                    AvatarConfig = table.Column<string>(type: "text", nullable: false)
                 },
                 constraints: table =>
                 {
                     table.PrimaryKey("PK_Users", x => x.Id);
-                    table.ForeignKey(
-                        name: "FK_Users_Avatars_AvatarId",
-                        column: x => x.AvatarId,
-                        principalTable: "Avatars",
-                        principalColumn: "Id");
                 });
 
             migrationBuilder.CreateTable(
@@ -62,9 +58,10 @@ namespace MeetAndGreet.API.Data.Migrations
                 columns: table => new
                 {
                     Id = table.Column<Guid>(type: "uuid", nullable: false),
-                    Content = table.Column<string>(type: "text", nullable: false),
+                    Content = table.Column<string>(type: "character varying(100)", maxLength: 100, nullable: false),
                     Timestamp = table.Column<DateTime>(type: "timestamp with time zone", nullable: false),
-                    UserId = table.Column<Guid>(type: "uuid", nullable: false),
+                    UserId = table.Column<Guid>(type: "uuid", nullable: true),
+                    UserName = table.Column<string>(type: "text", nullable: false),
                     ChannelId = table.Column<Guid>(type: "uuid", nullable: false)
                 },
                 constraints: table =>
@@ -80,29 +77,45 @@ namespace MeetAndGreet.API.Data.Migrations
                         name: "FK_Messages_Users_UserId",
                         column: x => x.UserId,
                         principalTable: "Users",
+                        principalColumn: "Id");
+                });
+
+            migrationBuilder.CreateTable(
+                name: "RefreshTokens",
+                columns: table => new
+                {
+                    Id = table.Column<Guid>(type: "uuid", nullable: false),
+                    Token = table.Column<string>(type: "text", nullable: false),
+                    UserId = table.Column<Guid>(type: "uuid", nullable: false),
+                    Expires = table.Column<DateTime>(type: "timestamp with time zone", nullable: false),
+                    IsUsed = table.Column<bool>(type: "boolean", nullable: false)
+                },
+                constraints: table =>
+                {
+                    table.PrimaryKey("PK_RefreshTokens", x => x.Id);
+                    table.ForeignKey(
+                        name: "FK_RefreshTokens_Users_UserId",
+                        column: x => x.UserId,
+                        principalTable: "Users",
                         principalColumn: "Id",
                         onDelete: ReferentialAction.Cascade);
                 });
 
             migrationBuilder.CreateTable(
-                name: "UserChannels",
+                name: "TrustedDevices",
                 columns: table => new
                 {
-                    ChannelsId = table.Column<Guid>(type: "uuid", nullable: false),
-                    UsersId = table.Column<Guid>(type: "uuid", nullable: false)
+                    Id = table.Column<string>(type: "character varying(64)", maxLength: 64, nullable: false),
+                    ExpiryDate = table.Column<DateTime>(type: "timestamp with time zone", nullable: false),
+                    FingerprintMetadata = table.Column<string>(type: "text", nullable: false),
+                    UserId = table.Column<Guid>(type: "uuid", nullable: false)
                 },
                 constraints: table =>
                 {
-                    table.PrimaryKey("PK_UserChannels", x => new { x.ChannelsId, x.UsersId });
+                    table.PrimaryKey("PK_TrustedDevices", x => x.Id);
                     table.ForeignKey(
-                        name: "FK_UserChannels_Channels_ChannelsId",
-                        column: x => x.ChannelsId,
-                        principalTable: "Channels",
-                        principalColumn: "Id",
-                        onDelete: ReferentialAction.Cascade);
-                    table.ForeignKey(
-                        name: "FK_UserChannels_Users_UsersId",
-                        column: x => x.UsersId,
+                        name: "FK_TrustedDevices_Users_UserId",
+                        column: x => x.UserId,
                         principalTable: "Users",
                         principalColumn: "Id",
                         onDelete: ReferentialAction.Cascade);
@@ -114,38 +127,46 @@ namespace MeetAndGreet.API.Data.Migrations
                 column: "ChannelId");
 
             migrationBuilder.CreateIndex(
+                name: "IX_Messages_Timestamp",
+                table: "Messages",
+                column: "Timestamp");
+
+            migrationBuilder.CreateIndex(
                 name: "IX_Messages_UserId",
                 table: "Messages",
                 column: "UserId");
 
             migrationBuilder.CreateIndex(
-                name: "IX_UserChannels_UsersId",
-                table: "UserChannels",
-                column: "UsersId");
+                name: "IX_RefreshTokens_UserId",
+                table: "RefreshTokens",
+                column: "UserId");
 
             migrationBuilder.CreateIndex(
-                name: "IX_Users_AvatarId",
-                table: "Users",
-                column: "AvatarId");
+                name: "IX_TrustedDevices_UserId",
+                table: "TrustedDevices",
+                column: "UserId");
         }
 
         /// <inheritdoc />
         protected override void Down(MigrationBuilder migrationBuilder)
         {
             migrationBuilder.DropTable(
+                name: "Avatars");
+
+            migrationBuilder.DropTable(
                 name: "Messages");
 
             migrationBuilder.DropTable(
-                name: "UserChannels");
+                name: "RefreshTokens");
+
+            migrationBuilder.DropTable(
+                name: "TrustedDevices");
 
             migrationBuilder.DropTable(
                 name: "Channels");
 
             migrationBuilder.DropTable(
                 name: "Users");
-
-            migrationBuilder.DropTable(
-                name: "Avatars");
         }
     }
 }

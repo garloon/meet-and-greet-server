@@ -152,6 +152,10 @@ namespace MeetAndGreet.API.Data.Migrations
                         .ValueGeneratedOnAdd()
                         .HasColumnType("uuid");
 
+                    b.Property<string>("AvatarConfig")
+                        .IsRequired()
+                        .HasColumnType("text");
+
                     b.Property<DateTime>("CodeExpiry")
                         .HasColumnType("timestamp with time zone");
 

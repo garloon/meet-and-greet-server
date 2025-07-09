@@ -5,6 +5,7 @@ using MeetAndGreet.API.Services;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.SignalR;
 using Microsoft.EntityFrameworkCore;
+using System.Text.Json;
 
 namespace MeetAndGreet.API.Hubs
 {
@@ -24,45 +25,57 @@ namespace MeetAndGreet.API.Hubs
             RateLimitService rateLimitService,
             RabbitMQService rabbitMQService)
         {
-            _redisService = redisService;
-            _serviceProvider = serviceProvider;
-            _logger = logger;
-            _rateLimitService = rateLimitService;
-            _rabbitMQService = rabbitMQService;
+            _redisService = redisService ?? throw new ArgumentNullException(nameof(redisService));
+            _serviceProvider = serviceProvider ?? throw new ArgumentNullException(nameof(serviceProvider));
+            _logger = logger ?? throw new ArgumentNullException(nameof(logger));
+            _rateLimitService = rateLimitService ?? throw new ArgumentNullException(nameof(rateLimitService));
+            _rabbitMQService = rabbitMQService ?? throw new ArgumentNullException(nameof(rabbitMQService));
+
+            _logger.LogInformation("ChatHub constructed.");
         }
 
-        public async Task JoinChannel(string channelId, string userId, string userName)
+        public async Task JoinChannel(string channelId, string userId, string userName, string avatarConfig)
         {
-            if (string.IsNullOrEmpty(userId))
+            _logger.LogInformation("User {UserId} attempting to join channel {ChannelId}.", userId, channelId);
+
+            try
             {
-                throw new ArgumentException("User ID cannot be empty");
-            }
+                var currentChannel = await _redisService.GetChannelIdForUser(userId);
 
-            if (string.IsNullOrEmpty(userName))
+                if (!string.IsNullOrEmpty(currentChannel) && currentChannel != channelId)
+                {
+                    _logger.LogInformation("User {UserId} is switching from channel {CurrentChannel} to {ChannelId}.", userId, currentChannel, channelId);
+                    await Clients.Group(currentChannel).SendAsync("UserLeft", userId);
+                    await _redisService.RemoveUserFromChannel(currentChannel, userId, Context.ConnectionId);
+                }
+
+
+                await _redisService.AddUserToChannel(channelId, userId, Context.ConnectionId, userName, avatarConfig);
+                await Groups.AddToGroupAsync(Context.ConnectionId, channelId);
+
+                var onlineUsers = await _redisService.GetOnlineUsersWithNamesAndAvatars(channelId);
+                await Clients.Group(channelId).SendAsync("UserJoined", userName, onlineUsers);
+                _logger.LogInformation("User {UserId} successfully joined channel {ChannelId}.", userId, channelId);
+            }
+            catch (Exception ex)
             {
-                userName = $"Гость-{userId[..6]}";
+                _logger.LogError(ex, "Error while joining channel {ChannelId} for user {UserId}.", channelId, userId);
+                // DO NOT re-throw general exception to client!
             }
-
-            await _redisService.RemoveUserFromAllChannels(userId, Context.ConnectionId);
-
-            await _redisService.AddUserToChannel(channelId, userId, Context.ConnectionId, userName);
-            await Groups.AddToGroupAsync(Context.ConnectionId, channelId);
-
-            var onlineUsers = await _redisService.GetOnlineUsersWithNames(channelId);
-
-            await Clients.Group(channelId).SendAsync(HubEvents.UserJoined, userName, onlineUsers);
-
-            _logger.LogInformation("User {UserId} joined channel {ChannelId}", userId, channelId);
         }
 
         public override async Task OnDisconnectedAsync(Exception exception)
         {
+            _logger.LogInformation("Connection {ConnectionId} disconnected.", Context.ConnectionId);
+
             try
             {
                 var userId = await _redisService.GetUserIdFromConnectionId(Context.ConnectionId);
+
                 if (userId != null)
                 {
                     var channelId = await _redisService.GetChannelIdForUser(userId);
+
                     if (channelId != null)
                     {
                         _logger.LogInformation("User {UserId} disconnected from channel {ChannelId}", userId, channelId);
@@ -77,7 +90,7 @@ namespace MeetAndGreet.API.Hubs
                         _logger.LogWarning("ChannelId not found for user {UserId} on disconnect", userId);
                     }
 
-                    await _redisService.RemoveUserIdConnectionId(userId);
+                    await _redisService.GetOrRemoveConnectionIdForUser(userId, true);
                 }
                 else
                 {
@@ -91,72 +104,116 @@ namespace MeetAndGreet.API.Hubs
             finally
             {
                 await base.OnDisconnectedAsync(exception);
+                _logger.LogInformation("Connection {ConnectionId} disconnect handling finished.", Context.ConnectionId);
             }
         }
 
         public async Task LeaveChannel(string channelId, string userId)
         {
-            _logger.LogInformation("User {UserId} leaving channel {ChannelId}", userId, channelId);
+            _logger.LogInformation("User {UserId} attempting to leave channel {ChannelId}.", userId, channelId);
+            try
+            {
+                await _redisService.RemoveUserFromChannel(channelId, userId, Context.ConnectionId);
+                await Groups.RemoveFromGroupAsync(Context.ConnectionId, channelId);
 
-            await _redisService.RemoveUserFromChannel(channelId, userId, Context.ConnectionId);
-            await Groups.RemoveFromGroupAsync(Context.ConnectionId, channelId);
-
-            var onlineUsers = await _redisService.GetOnlineUsersInChannel(channelId);
-            await Clients.Group(channelId).SendAsync(HubEvents.UserLeft, userId, onlineUsers);
-
-            _logger.LogInformation("User {UserId} successfully left channel {ChannelId}", userId, channelId);
+                var onlineUsers = await _redisService.GetOnlineUsersInChannel(channelId);
+                await Clients.Group(channelId).SendAsync("UserLeft", userId, onlineUsers);
+                _logger.LogInformation("User {UserId} successfully left channel {ChannelId}.", userId, channelId);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error while leaving channel {ChannelId} for user {UserId}.", channelId, userId);
+                // DO NOT re-throw general exception to client!
+            }
         }
 
         public async Task ForceLeaveAllChannels(string userId)
         {
-            var userChannels = await _redisService.GetUserChannels(userId);
-            foreach (var channelId in userChannels)
+            _logger.LogInformation("ForceLeaveAllChannels called for user {UserId}.", userId);
+
+            try
             {
-                await _redisService.RemoveUserFromChannel(channelId, userId, Context.ConnectionId);
-                var onlineUsers = await _redisService.GetOnlineUsersInChannel(channelId);
-                await Clients.Group(channelId).SendAsync(HubEvents.UserLeft, userId, onlineUsers);
+                var userChannels = await _redisService.GetUserChannels(userId);
+                foreach (var channelId in userChannels)
+                {
+                    await _redisService.RemoveUserFromChannel(channelId, userId, Context.ConnectionId);
+                    var onlineUsers = await _redisService.GetOnlineUsersInChannel(channelId);
+                    await Clients.Group(channelId).SendAsync(HubEvents.UserLeft, userId, onlineUsers);
+                }
+                await _redisService.GetOrRemoveConnectionIdForUser(userId, true);
+                _logger.LogInformation("User {UserId} successfully forced to leave all channels.", userId);
             }
-            await _redisService.RemoveUserIdConnectionId(userId);
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error while forcing user {UserId} to leave all channels.", userId);
+                // DO NOT re-throw general exception to client!
+            }
         }
 
         public async Task SendMessage(string channelId, string user, string message)
         {
+            _logger.LogInformation("Received message from user {User} in channel {ChannelId}", user, channelId);
+
             if (!_rateLimitService.IsAllowed(Context.UserIdentifier))
             {
-                _logger.LogWarning($"Rate limit exceeded for user {Context.UserIdentifier}");
+                _logger.LogWarning("Rate limit exceeded for user {UserIdentifier}", Context.UserIdentifier);
                 await Clients.Caller.SendAsync("ReceiveMessage", "System", "Превышен лимит сообщений. Пожалуйста, подождите.");
                 return;
             }
 
-            _logger.LogInformation("Received message from user {User} in channel {ChannelId}", user, channelId);
-
             try
             {
                 if (string.IsNullOrWhiteSpace(message))
+                {
+                    _logger.LogWarning("Received empty message from user {User} in channel {ChannelId}", user, channelId);
                     throw new HubException("Сообщение не может быть пустым.");
+                }
+
 
                 if (message.Length > 100)
+                {
+                    _logger.LogWarning("Received message too long from user {User} in channel {ChannelId}", user, channelId);
                     throw new HubException("Сообщение слишком длинное.");
+                }
 
-                _rabbitMQService.PublishMessage(new
+                await _rabbitMQService.PublishMessage(new
                 {
                     ChannelId = channelId,
                     User = user,
                     Message = message
                 });
             }
+            catch (HubException hex)
+            {
+                _logger.LogWarning(hex, "HubException while sending message to channel {ChannelId} from user {User}: {Message}", channelId, user, hex.Message);
+                throw; // Re-throw HubException so client receives the error.
+            }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Error sending message to channel {ChannelId}", channelId);
+                _logger.LogError(ex, "Error sending message to channel {ChannelId} from user {User}", channelId, user);
+                // DO NOT re-throw general exception here as it might expose sensitive information.
+                await Clients.Caller.SendAsync("ReceiveMessage", "System", "Произошла ошибка при отправке сообщения.");
             }
         }
 
         public async Task SendHeartbeat()
         {
-            var userId = await _redisService.GetUserIdFromConnectionId(Context.ConnectionId);
-            if (userId != null)
+            _logger.LogDebug("Received heartbeat from connection {ConnectionId}.", Context.ConnectionId);
+            try
             {
-                await _redisService.UpdateUserActivity(userId, Context.ConnectionId);
+                var userId = await _redisService.GetUserIdFromConnectionId(Context.ConnectionId);
+                if (userId != null)
+                {
+                    await _redisService.UpdateUserActivity(userId, Context.ConnectionId);
+                }
+                else
+                {
+                    _logger.LogWarning("UserId not found for connection id {ConnectionId}.", Context.ConnectionId);
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error updating user activity for connection {ConnectionId}.", Context.ConnectionId);
             }
         }
     }

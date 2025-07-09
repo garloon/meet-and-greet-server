@@ -9,7 +9,7 @@
     "Parameters": [
       {
         "Name": "request",
-        "Type": "MeetAndGreet.API.Models.LoginRequest",
+        "Type": "MeetAndGreet.API.Models.Requests.LoginRequest",
         "IsRequired": true
       }
     ],
@@ -35,7 +35,7 @@
     "Parameters": [
       {
         "Name": "request",
-        "Type": "MeetAndGreet.API.Models.RefreshRequest",
+        "Type": "MeetAndGreet.API.Models.Requests.RefreshRequest",
         "IsRequired": true
       }
     ],
@@ -51,7 +51,7 @@
     "Parameters": [
       {
         "Name": "request",
-        "Type": "MeetAndGreet.API.Models.RegisterRequest",
+        "Type": "MeetAndGreet.API.Models.Requests.RegisterRequest",
         "IsRequired": true
       }
     ],
@@ -77,7 +77,7 @@
     "Parameters": [
       {
         "Name": "request",
-        "Type": "MeetAndGreet.API.Models.VerifyCodeRequest",
+        "Type": "MeetAndGreet.API.Models.Requests.VerifyCodeRequest",
         "IsRequired": true
       }
     ],

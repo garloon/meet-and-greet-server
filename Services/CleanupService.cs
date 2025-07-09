@@ -1,5 +1,4 @@
 ﻿using MeetAndGreet.API.Data;
-using MeetAndGreet.API.Hubs;
 using Microsoft.EntityFrameworkCore;
 
 namespace MeetAndGreet.API.Services
@@ -15,24 +14,39 @@ namespace MeetAndGreet.API.Services
             IServiceProvider services,
             ILogger<CleanupService> logger)
         {
-            _redisService = redisService;
-            _services = services;
-            _logger = logger;
+            _redisService = redisService ?? throw new ArgumentNullException(nameof(redisService));
+            _services = services ?? throw new ArgumentNullException(nameof(services));
+            _logger = logger ?? throw new ArgumentNullException(nameof(logger));
+            _logger.LogInformation("CleanupService constructed.");
         }
 
         protected override async Task ExecuteAsync(CancellationToken stoppingToken)
         {
+            _logger.LogInformation("CleanupService is starting.");
             while (!stoppingToken.IsCancellationRequested)
             {
-                await _redisService.RunCleanupAsync();
-                await CleanupMessagesAsync();
-                await CleanupDevicesAsync();
-                await Task.Delay(TimeSpan.FromHours(24), stoppingToken);
+                try
+                {
+                    await _redisService.RunCleanupAsync();
+                    await CleanupMessagesAsync(stoppingToken);
+                    await CleanupDevicesAsync(stoppingToken);
+                    await Task.Delay(TimeSpan.FromHours(24), stoppingToken);
+                }
+                catch (TaskCanceledException)
+                {
+                    _logger.LogInformation("Cleanup task cancelled.");
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogError(ex, "Error during cleanup cycle.");
+                }
             }
+            _logger.LogInformation("CleanupService is stopping.");
         }
 
-        private async Task CleanupMessagesAsync()
+        private async Task CleanupMessagesAsync(CancellationToken stoppingToken)
         {
+            _logger.LogInformation("Cleaning up old messages.");
             using (var scope = _services.CreateScope())
             {
                 var dbContext = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
@@ -44,7 +58,8 @@ namespace MeetAndGreet.API.Services
                         .Where(m => m.Timestamp < cutoffDate);
 
                     dbContext.Messages.RemoveRange(oldMessages);
-                    await dbContext.SaveChangesAsync();
+                    await dbContext.SaveChangesAsync(stoppingToken);
+                    _logger.LogInformation("Old messages cleanup completed.");
                 }
                 catch (Exception ex)
                 {
@@ -53,17 +68,26 @@ namespace MeetAndGreet.API.Services
             }
         }
 
-        private async Task CleanupDevicesAsync()
+        private async Task CleanupDevicesAsync(CancellationToken stoppingToken)
         {
+            _logger.LogInformation("Cleaning up expired devices.");
             using (var scope = _services.CreateScope())
             {
                 var db = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
-                var expired = await db.TrustedDevices
-                    .Where(d => d.ExpiryDate < DateTime.UtcNow)
-                    .ToListAsync();
+                try
+                {
+                    var expired = await db.TrustedDevices
+                        .Where(d => d.ExpiryDate < DateTime.UtcNow)
+                        .ToListAsync(stoppingToken);
 
-                db.TrustedDevices.RemoveRange(expired);
-                await db.SaveChangesAsync();
+                    db.TrustedDevices.RemoveRange(expired);
+                    await db.SaveChangesAsync(stoppingToken);
+                    _logger.LogInformation("Expired devices cleanup completed.");
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogError(ex, "Ошибка очистки старых устройств");
+                }
             }
         }
     }
